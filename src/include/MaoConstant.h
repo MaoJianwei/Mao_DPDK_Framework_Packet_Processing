@@ -1,0 +1,12 @@
+
+
+#define RTE_LOGTYPE_Mao RTE_LOGTYPE_USER1
+
+#define Mao_MAX_LCORE RTE_MAX_LCORE // RTE_MAX_LCORE 128
+#define Mao_MAX_ETHPORTS RTE_MAX_ETHPORTS // RTE_MAX_ETHPORTS 32
+
+
+
+// solid configuration
+#define Mao_RX_QUEUE_NUM_PER_PORT 1
+#define Mao_TX_QUEUE_NUM_PER_PORT 1
