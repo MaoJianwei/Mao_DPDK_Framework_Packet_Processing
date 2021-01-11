@@ -35,7 +35,7 @@ SRCS-y := main.c
 # Build using pkg-config variables if possible
 ifeq ($(shell pkg-config --exists libdpdk && echo 0),0)
 
-all: shared # static
+all: static # shared
 .PHONY: shared static
 shared: build/$(APP)-shared
 	ln -sf $(APP)-shared build/$(APP)
