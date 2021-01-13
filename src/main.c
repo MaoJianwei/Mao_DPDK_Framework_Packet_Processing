@@ -118,13 +118,21 @@ void init_pktmbuf_mem_pool() {
 //	(nb_ports*nb_rx_queue*nb_rxd + \
 //	nb_ports*nb_lcores*MAX_PKT_BURST + \
 //	nb_ports*n_tx_queue*nb_txd + \
-//	nb_lcores*MEMPOOL_CACHE_SIZE), \
+//	nb_lcores*Mao_PACKET_MEMPOOL_CACHE_SIZE), \
 //	(unsigned)8192)
 
     uint16_t mempoll_size = 8192;
 
     //fixme: todo
     unsigned int nb_socket = RTE_MIN(rte_socket_count(), Mao_MAX_SOCKET);
+
+    //fixme: just create pool on the sockets to be use.
+    char tmp_name[64];
+    unsigned i;
+    for (i = 0; i < nb_socket; i++) {
+        snprintf(tmp_name, sizeof(tmp_name), "rx-pktmbuf-pool-%d", i);
+        rx_pktmbuf_pool[i] = rte_pktmbuf_pool_create(tmp_name, Mao_PACKET_MEMPOOL_PACKET_NUMBER, Mao_PACKET_MEMPOOL_CACHE_SIZE,0, RTE_MBUF_DEFAULT_BUF_SIZE, i);
+    }
 }
 
 void init_port() {

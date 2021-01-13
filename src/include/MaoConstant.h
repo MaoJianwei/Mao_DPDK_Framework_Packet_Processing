@@ -23,3 +23,8 @@
 
 // general configuration
 #define Mao_MAX_PACKET_BURST 32
+#define Mao_PACKET_MEMPOOL_CACHE_SIZE 256
+
+
+// debug configuration
+#define Mao_PACKET_MEMPOOL_PACKET_NUMBER (8192 - 1)
