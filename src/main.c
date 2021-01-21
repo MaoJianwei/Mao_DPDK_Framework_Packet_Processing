@@ -5,6 +5,7 @@
 #include <rte_eal.h>
 #include <rte_ethdev.h>
 #include <rte_malloc.h>
+#include <include/MaoMacroTool.h>
 
 
 #include "include/MaoConstant.h"
@@ -136,13 +137,14 @@ void init_pktmbuf_mem_pool() {
 }
 
 void init_port() {
+    // FIXME: local_port_conf.intr_conf.rxq = 1;
     struct rte_eth_conf rte_port_config = {
             .rxmode = {
                     .max_rx_pkt_len = RTE_ETHER_MAX_LEN, // FIXME: Mao: Does it support JUMBO Frame?
                     .offloads = DEV_RX_OFFLOAD_CHECKSUM // DEV_RX_OFFLOAD_CRC_STRIP | DEV_RX_OFFLOAD_CHECKSUM
             },
             .txmode = {
-                    .offloads = DEV_TX_OFFLOAD_IPV4_CKSUM | DEV_TX_OFFLOAD_TCP_CKSUM | DEV_TX_OFFLOAD_UDP_CKSUM,
+                    .offloads = DEV_TX_OFFLOAD_IPV4_CKSUM | DEV_TX_OFFLOAD_TCP_CKSUM | DEV_TX_OFFLOAD_UDP_CKSUM, // FIXME: to add DEV_TX_OFFLOAD_MBUF_FAST_FREE
             }
     };
 
@@ -154,8 +156,54 @@ void init_port() {
     uint16_t nb_tx_desc = Mao_TX_DESC_PER_PORT;
     uint64_t port_id;
     RTE_ETH_FOREACH_DEV(port_id) {
+
+        unsigned int ret;
+
+        struct rte_eth_dev_info port_dev_info;
+        ret = rte_eth_dev_info_get(port_id, &port_dev_info);
+        if (ret != 0) {
+            RTE_LOG(WARNING, Mao, "Fail, unable to get dev info for port %lu, ignore this port. ret %d.\n", port_id, ret);
+        }
+
+
         rte_eth_dev_configure(port_id, Mao_RX_QUEUE_PER_PORT, Mao_TX_QUEUE_PER_PORT, &rte_port_config);
         rte_eth_dev_adjust_nb_rx_tx_desc(port_id, &nb_rx_desc, &nb_tx_desc);
+
+
+        //todo: init port's tx buffer & setup port's tx queue
+        //fixme: avoid O(n^2)
+        unsigned int lcore_id;
+        for (lcore_id = 0; lcore_id < ARRAY_SIZE(lcore_runtime_config); lcore_id++) {
+            //fixme: to check rte_lcore_is_enabled()
+            struct lcore_runtime* lcore_rt = &lcore_runtime_config[lcore_id];
+
+            unsigned int ret;
+            unsigned int i;
+            for (i = 0; i < lcore_rt->nb_tx_port; i++) {
+                if (lcore_rt->tx_port_ids[i] == port_id) {
+                    ret = rte_eth_tx_buffer_init(lcore_rt->tx_buffers[i], Mao_MAX_PACKET_BURST);
+                    if (ret == 0) {
+                        RTE_LOG(INFO, Mao, "Init tx_buffer for port %lu, lcore %d, tx_buffer %d, OK.\n", port_id, lcore_id, i);
+                    } else {
+                        RTE_LOG(ERR, Mao, "Fail, unable to init tx_buffer for port %lu, lcore %d, tx_buffer %d, ret %d.\n", port_id, lcore_id, i, ret);
+                    }
+
+
+                    //FIXME: TODO fill txmode.offload, and so on
+                    port_dev_info.default_txconf;
+
+                    // Mao: now, one port - one queue(0) - one tx lcore.
+                    ret = rte_eth_tx_queue_setup(port_id, 0, nb_tx_desc, rte_lcore_to_socket_id(lcore_id), &port_dev_info.default_txconf);
+                    if (ret == 0) {
+                        RTE_LOG(INFO, Mao, "Init setup tx queue for port %lu, lcore %d, queue 0, OK.\n", port_id, lcore_id);
+                    } else {
+                        RTE_LOG(ERR, Mao, "Fail, unable to Init setup tx queue for port %lu, lcore %d, queue 0, ret %d.\n", port_id, lcore_id, ret);
+                    }
+
+                    break;
+                }
+            }
+        }
     }
 }
 
