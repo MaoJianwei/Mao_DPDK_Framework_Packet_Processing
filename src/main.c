@@ -137,6 +137,10 @@ void init_pktmbuf_mem_pool() {
 }
 
 void init_port() {
+
+    // todo: iterate every lcore to init all rx & tx queues which it takes responsibility. 2021.01.22
+
+
     // FIXME: local_port_conf.intr_conf.rxq = 1;
     struct rte_eth_conf rte_port_config = {
             .rxmode = {
@@ -185,7 +189,7 @@ void init_port() {
                     if (ret == 0) {
                         RTE_LOG(INFO, Mao, "Init tx_buffer for port %lu, lcore %d, tx_buffer %d, OK.\n", port_id, lcore_id, i);
                     } else {
-                        RTE_LOG(ERR, Mao, "Fail, unable to init tx_buffer for port %lu, lcore %d, tx_buffer %d, ret %d.\n", port_id, lcore_id, i, ret);
+                        RTE_LOG(ERR, Mao, "Fail, unable to init tx_buffer for port %lu, lcore %d, tx_buffer %d, ret: %d, %s.\n", port_id, lcore_id, i, ret, rte_strerror(-ret));
                     }
 
 
@@ -197,7 +201,34 @@ void init_port() {
                     if (ret == 0) {
                         RTE_LOG(INFO, Mao, "Init setup tx queue for port %lu, lcore %d, queue 0, OK.\n", port_id, lcore_id);
                     } else {
-                        RTE_LOG(ERR, Mao, "Fail, unable to Init setup tx queue for port %lu, lcore %d, queue 0, ret %d.\n", port_id, lcore_id, ret);
+                        RTE_LOG(ERR, Mao, "Fail, unable to Init setup tx queue for port %lu, lcore %d, queue 0, ret %d, %s.\n", port_id, lcore_id, ret, rte_strerror(-ret));
+                    }
+
+                    break;
+                }
+            }
+        }
+
+
+        //todo: init port's rx queue
+        for (lcore_id = 0; lcore_id < ARRAY_SIZE(lcore_runtime_config); lcore_id++) {
+            //fixme: to check rte_lcore_is_enabled()
+            struct lcore_runtime* lcore_rt = &lcore_runtime_config[lcore_id];
+
+            unsigned int ret;
+            unsigned int i;
+            for (i = 0; i < lcore_rt->nb_rx_port; i++) {
+                if (lcore_rt->rx_port_ids[i] == port_id) {
+
+                    //FIXME: TODO fill rxmode.offload, and so on
+                    port_dev_info.default_rxconf;
+
+                    // Mao: now, one port - one queue(0) - one rx lcore.
+                    ret = rte_eth_rx_queue_setup(port_id, 0,nb_rx_desc, rte_lcore_to_socket_id(lcore_id), &port_dev_info.default_rxconf, rx_pktmbuf_pool[rte_lcore_to_socket_id(lcore_id)]);
+                    if (ret == 0) {
+                        RTE_LOG(INFO, Mao, "Init setup rx queue for port %lu, lcore %d, queue 0, OK.\n", port_id, lcore_id);
+                    } else {
+                        RTE_LOG(ERR, Mao, "Fail, unable to Init setup rx queue for port %lu, lcore %d, queue 0, ret %d, %s.\n", port_id, lcore_id, ret, rte_strerror(-ret));
                     }
 
                     break;
@@ -205,6 +236,53 @@ void init_port() {
             }
         }
     }
+}
+
+void launch_port() {
+    unsigned int ret;
+    unsigned int port_id;
+    RTE_ETH_FOREACH_DEV(port_id) {
+
+        ret = rte_eth_dev_start(port_id);
+        if (ret != 0) {
+            RTE_LOG(ERR, Mao, "Fail, unable to start port %d, ret %d, %s.\n", port_id, ret, rte_strerror(-ret));
+            continue;
+        }
+
+        ret = rte_eth_promiscuous_enable(port_id);
+        if (ret != 0) {
+            RTE_LOG(WARNING, Mao, "Caution, unable to set promiscuous for port %d, ret %d, %s.\n", port_id, ret, rte_strerror(-ret));
+        }
+
+        // todo: init spinlock for rx interrupt.
+
+    }
+}
+
+int debug_loop() {
+    // TEST PASS: RTE_LOG(INFO, Mao, "here is lcore %d, socket %d.\n", rte_lcore_id(), rte_socket_id());
+    return 0;
+}
+
+
+void launch_lcore() {
+    rte_eal_mp_remote_launch(debug_loop, NULL, CALL_MAIN); /* lcore handler also executed by main core. */
+}
+
+void wait_for_complete() {
+
+    // now, we use CALL_MAIN, so main lcore will first finish debug_loop, then come here to wait others.
+
+    unsigned int lcore_id;
+    unsigned int ret;
+    RTE_LCORE_FOREACH_WORKER(lcore_id) {
+        // TEST PASS: RTE_LOG(INFO, Mao, "To wait lcore %d, socket %d.\n", lcore_id, rte_lcore_to_socket_id(lcore_id));
+        ret = rte_eal_wait_lcore(lcore_id);
+        if (ret != 0) {
+            RTE_LOG(WARNING, Mao, "Caution, wait_lcore returns %d, %s.\n", ret, rte_strerror(-ret));
+        }
+    }
+
 }
 
 int main (int argc, char ** argv) {
@@ -237,11 +315,14 @@ int main (int argc, char ** argv) {
 //    check_port_config();
     init_port();
 
-//    launch_port();
-//
-//    wait_for_complete();
-//
-//
+    launch_port();
+
+    // todo :monitor link status in background
+
+    launch_lcore();
+
+    wait_for_complete();
+
 //    clean(); // wait for detail
 
     goto cleanup;
