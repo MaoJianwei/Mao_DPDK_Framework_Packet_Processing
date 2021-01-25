@@ -305,6 +305,23 @@ void wait_for_complete() {
 
 }
 
+void stop_port() {
+    unsigned int port_id;
+    unsigned ret;
+    RTE_ETH_FOREACH_DEV(port_id) {
+        ret = rte_eth_dev_stop(port_id);
+        if (ret != 0) {
+            RTE_LOG(WARNING, Mao, "Caution, stop device returns %d, %s.\n", ret, rte_strerror(-ret));
+        }
+
+        ret = rte_eth_dev_close(port_id); // may report 'Operation not permitted'.
+        if (ret != 0) {
+            RTE_LOG(WARNING, Mao, "Caution, close device returns %d, %s.\n", ret, rte_strerror(ret>0 ? ret : -ret));
+        }
+    }
+
+}
+
 int main (int argc, char ** argv) {
 
     // register callback for system signal, e.g. Ctrl+C or else
@@ -343,7 +360,7 @@ int main (int argc, char ** argv) {
 
     wait_for_complete();
 
-//    clean(); // wait for detail
+    stop_port();
 
     goto cleanup;
 
