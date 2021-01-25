@@ -38,7 +38,7 @@ struct lcore_runtime {
 struct lcore_runtime lcore_runtime_config[Mao_MAX_LCORE];
 struct rte_mempool* rx_pktmbuf_pool[Mao_MAX_SOCKET];
 
-unsigned char need_shutdown = 0;
+unsigned char volatile need_shutdown = 0; // volatile is necessary.
 //struct port_runtime port_runtimes[Mao_MAX_ETHPORTS];
 
 
@@ -46,10 +46,16 @@ unsigned char need_shutdown = 0;
 
 static void sys_signal_processor(int signal) {
     switch(signal) {
-        case SIGINT:
-        case SIGTERM:
+        case SIGINT: // ctrl+C
             need_shutdown = 1;
+            RTE_LOG(INFO, Mao, "get SIGINT signal %d, need_shutdown %d.\n", signal, need_shutdown);
             break;
+        case SIGTERM: // kill
+            need_shutdown = 1;
+            RTE_LOG(INFO, Mao, "get SIGTERM signal %d, need_shutdown %d.\n", signal, need_shutdown);
+            break;
+        default:
+            RTE_LOG(INFO, Mao, "get default signal %d, need_shutdown %d.\n", signal, need_shutdown);
     }
 }
 
@@ -261,9 +267,23 @@ void launch_port() {
 
 int debug_loop() {
     // TEST PASS: RTE_LOG(INFO, Mao, "here is lcore %d, socket %d.\n", rte_lcore_id(), rte_socket_id());
+
+    struct lcore_runtime * me = &lcore_runtime_config[rte_lcore_id()];
+    if (me->nb_rx_port == 0 && me->nb_tx_port == 0) {
+        return 0;
+    }
+
+
+//    RTE_LOG(INFO, Mao, "checked need shutdown %d, lcore %d, socket %d.\n", need_shutdown, rte_lcore_id(), rte_socket_id());
+    while(!need_shutdown) {
+//        if (need_shutdown) {
+//            RTE_LOG(INFO, Mao, "IF need shutdown %d, lcore %d, socket %d.\n", need_shutdown, rte_lcore_id(), rte_socket_id());
+//        }
+        ;
+    }
+//    RTE_LOG(INFO, Mao, "while need shutdown %d, lcore %d, socket %d.\n", need_shutdown, rte_lcore_id(), rte_socket_id());
     return 0;
 }
-
 
 void launch_lcore() {
     rte_eal_mp_remote_launch(debug_loop, NULL, CALL_MAIN); /* lcore handler also executed by main core. */
