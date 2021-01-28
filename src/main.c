@@ -29,14 +29,15 @@ struct lcore_runtime {
 
     unsigned int nb_tx_port;
     unsigned int tx_port_ids[Mao_MAX_PORTS_PER_LCORE];
-    struct rte_eth_dev_tx_buffer * tx_buffers[Mao_MAX_PORTS_PER_LCORE];
 };
 
 
 // all runtime variables
 
 struct lcore_runtime lcore_runtime_config[Mao_MAX_LCORE];
-struct rte_mempool* rx_pktmbuf_pool[Mao_MAX_SOCKET];
+struct rte_mempool* rx_pktmbuf_pool[Mao_MAX_SOCKET]; // RX buffer
+struct rte_eth_dev_tx_buffer * tx_buffers[Mao_MAX_ETHPORTS]; // TX buffer bind to per port.
+
 
 unsigned char volatile need_shutdown = 0; // volatile is necessary.
 //struct port_runtime port_runtimes[Mao_MAX_ETHPORTS];
@@ -75,16 +76,16 @@ void debug_inject_lcore_config() {
     lcore_runtime_config[0].rx_port_ids[0] = 0;
     lcore_runtime_config[0].nb_tx_port++;
     lcore_runtime_config[0].tx_port_ids[0] = 0;
-    lcore_runtime_config[0].tx_buffers[0] = rte_zmalloc_socket("lcore0_tx_buffer",
-        RTE_ETH_TX_BUFFER_SIZE(Mao_MAX_PACKET_BURST), 0,rte_eth_dev_socket_id(0));
+//    lcore_runtime_config[0].tx_buffers[0] = rte_zmalloc_socket("lcore0_tx_buffer",
+//        RTE_ETH_TX_BUFFER_SIZE(Mao_MAX_PACKET_BURST), 0,rte_eth_dev_socket_id(0));
 
     lcore_runtime_config[1].lcore_id = 1;
     lcore_runtime_config[1].nb_rx_port++;
     lcore_runtime_config[1].rx_port_ids[0] = 1;
     lcore_runtime_config[1].nb_tx_port++;
     lcore_runtime_config[1].tx_port_ids[0] = 1;
-    lcore_runtime_config[1].tx_buffers[0] = rte_zmalloc_socket("lcore1_tx_buffer",
-        RTE_ETH_TX_BUFFER_SIZE(Mao_MAX_PACKET_BURST), 0,rte_eth_dev_socket_id(1));
+//    lcore_runtime_config[1].tx_buffers[0] = rte_zmalloc_socket("lcore1_tx_buffer",
+//        RTE_ETH_TX_BUFFER_SIZE(Mao_MAX_PACKET_BURST), 0,rte_eth_dev_socket_id(1));
 };
 
 unsigned char check_lcore_config() {
@@ -113,7 +114,7 @@ void init_lcore() {
 
 }
 
-void init_pktmbuf_mem_pool() {
+void init_rx_pktmbuf_mem_pool() {
 
 /*
  * This expression is used to calculate the number of mbufs needed depending on
@@ -142,6 +143,28 @@ void init_pktmbuf_mem_pool() {
     }
 }
 
+void init_tx_buffer() {
+    unsigned int ret;
+    char tmp_name[64];
+    unsigned int port_id;
+    int socket_id;
+    RTE_ETH_FOREACH_DEV(port_id) {
+        socket_id = rte_eth_dev_socket_id(port_id);
+
+        snprintf(tmp_name, sizeof(tmp_name), "tx-buffer-port-%d", port_id);
+        tx_buffers[port_id] = rte_zmalloc_socket(tmp_name, RTE_ETH_TX_BUFFER_SIZE(Mao_MAX_PACKET_BURST), 0, socket_id);
+
+        ret = rte_eth_tx_buffer_init(tx_buffers[port_id], Mao_MAX_PACKET_BURST);
+        if (ret == 0) {
+            RTE_LOG(INFO, Mao, "Init tx_buffer for port %u, socket %d, tx_buffer %s, OK.\n", port_id, socket_id, tmp_name);
+        } else {
+            RTE_LOG(ERR, Mao, "Fail, unable to init tx_buffer for port %u, socket %d, tx_buffer %s, ret: %d, %s.\n",
+                    port_id, socket_id, tmp_name, ret, rte_strerror(-ret));
+        }
+    }
+}
+
+
 void init_port() {
 
     // todo: iterate every lcore to init all rx & tx queues which it takes responsibility. 2021.01.22
@@ -164,10 +187,13 @@ void init_port() {
 
     uint16_t nb_rx_desc = Mao_RX_DESC_PER_PORT;
     uint16_t nb_tx_desc = Mao_TX_DESC_PER_PORT;
+    unsigned int ret;
     uint64_t port_id;
+    int socket_id;
     RTE_ETH_FOREACH_DEV(port_id) {
 
-        unsigned int ret;
+
+        socket_id = rte_eth_dev_socket_id(port_id);
 
         struct rte_eth_dev_info port_dev_info;
         ret = rte_eth_dev_info_get(port_id, &port_dev_info);
@@ -180,66 +206,69 @@ void init_port() {
         rte_eth_dev_adjust_nb_rx_tx_desc(port_id, &nb_rx_desc, &nb_tx_desc);
 
 
-        //todo: init port's tx buffer & setup port's tx queue
-        //fixme: avoid O(n^2)
-        unsigned int lcore_id;
-        for (lcore_id = 0; lcore_id < ARRAY_SIZE(lcore_runtime_config); lcore_id++) {
-            //fixme: to check rte_lcore_is_enabled()
-            struct lcore_runtime* lcore_rt = &lcore_runtime_config[lcore_id];
+//        //todo: init port's tx buffer & setup port's tx queue
+//        //fixme: avoid O(n^2)
+//        unsigned int lcore_id;
+//        for (lcore_id = 0; lcore_id < ARRAY_SIZE(lcore_runtime_config); lcore_id++) {
+//            //fixme: to check rte_lcore_is_enabled()
+//            struct lcore_runtime* lcore_rt = &lcore_runtime_config[lcore_id];
+//
+//            unsigned int ret;
+//            unsigned int i;
+//            for (i = 0; i < lcore_rt->nb_tx_port; i++) {
+//                if (lcore_rt->tx_port_ids[i] == port_id) {
+//
+//
+//
+//
+//                    break;
+//                }
+//            }
+//        }
 
-            unsigned int ret;
-            unsigned int i;
-            for (i = 0; i < lcore_rt->nb_tx_port; i++) {
-                if (lcore_rt->tx_port_ids[i] == port_id) {
-                    ret = rte_eth_tx_buffer_init(lcore_rt->tx_buffers[i], Mao_MAX_PACKET_BURST);
-                    if (ret == 0) {
-                        RTE_LOG(INFO, Mao, "Init tx_buffer for port %lu, lcore %d, tx_buffer %d, OK.\n", port_id, lcore_id, i);
-                    } else {
-                        RTE_LOG(ERR, Mao, "Fail, unable to init tx_buffer for port %lu, lcore %d, tx_buffer %d, ret: %d, %s.\n", port_id, lcore_id, i, ret, rte_strerror(-ret));
-                    }
+        //FIXME: TODO fill txmode.offload, and so on
+        port_dev_info.default_txconf;
 
-
-                    //FIXME: TODO fill txmode.offload, and so on
-                    port_dev_info.default_txconf;
-
-                    // Mao: now, one port - one queue(0) - one tx lcore.
-                    ret = rte_eth_tx_queue_setup(port_id, 0, nb_tx_desc, rte_lcore_to_socket_id(lcore_id), &port_dev_info.default_txconf);
-                    if (ret == 0) {
-                        RTE_LOG(INFO, Mao, "Init setup tx queue for port %lu, lcore %d, queue 0, OK.\n", port_id, lcore_id);
-                    } else {
-                        RTE_LOG(ERR, Mao, "Fail, unable to Init setup tx queue for port %lu, lcore %d, queue 0, ret %d, %s.\n", port_id, lcore_id, ret, rte_strerror(-ret));
-                    }
-
-                    break;
-                }
-            }
+        // Mao: now, one port - one queue(0) - one tx lcore.
+        ret = rte_eth_tx_queue_setup(port_id, 0, nb_tx_desc, socket_id, &port_dev_info.default_txconf);
+        if (ret == 0) {
+            RTE_LOG(INFO, Mao, "Init setup tx queue for port %lu, socket %d, queue 0, OK.\n", port_id, socket_id);
+        } else {
+            RTE_LOG(ERR, Mao, "Fail, unable to Init setup tx queue for port %lu, socket %d, queue 0, ret %d, %s.\n", port_id, socket_id, ret, rte_strerror(-ret));
         }
 
 
-        //todo: init port's rx queue
-        for (lcore_id = 0; lcore_id < ARRAY_SIZE(lcore_runtime_config); lcore_id++) {
-            //fixme: to check rte_lcore_is_enabled()
-            struct lcore_runtime* lcore_rt = &lcore_runtime_config[lcore_id];
 
-            unsigned int ret;
-            unsigned int i;
-            for (i = 0; i < lcore_rt->nb_rx_port; i++) {
-                if (lcore_rt->rx_port_ids[i] == port_id) {
 
-                    //FIXME: TODO fill rxmode.offload, and so on
-                    port_dev_info.default_rxconf;
 
-                    // Mao: now, one port - one queue(0) - one rx lcore.
-                    ret = rte_eth_rx_queue_setup(port_id, 0,nb_rx_desc, rte_lcore_to_socket_id(lcore_id), &port_dev_info.default_rxconf, rx_pktmbuf_pool[rte_lcore_to_socket_id(lcore_id)]);
-                    if (ret == 0) {
-                        RTE_LOG(INFO, Mao, "Init setup rx queue for port %lu, lcore %d, queue 0, OK.\n", port_id, lcore_id);
-                    } else {
-                        RTE_LOG(ERR, Mao, "Fail, unable to Init setup rx queue for port %lu, lcore %d, queue 0, ret %d, %s.\n", port_id, lcore_id, ret, rte_strerror(-ret));
-                    }
 
-                    break;
-                }
-            }
+//        //todo: init port's rx queue
+//        for (lcore_id = 0; lcore_id < ARRAY_SIZE(lcore_runtime_config); lcore_id++) {
+//            //fixme: to check rte_lcore_is_enabled()
+//            struct lcore_runtime* lcore_rt = &lcore_runtime_config[lcore_id];
+//
+//            unsigned int ret;
+//            unsigned int i;
+//            for (i = 0; i < lcore_rt->nb_rx_port; i++) {
+//                if (lcore_rt->rx_port_ids[i] == port_id) {
+//
+//
+//
+//                    break;
+//                }
+//            }
+//        }
+
+        //FIXME: TODO fill rxmode.offload, and so on
+        port_dev_info.default_rxconf;
+
+        // Mao: now, one port - one queue(0) - one rx lcore.
+        // FIXME: 
+        ret = rte_eth_rx_queue_setup(port_id, 0,nb_rx_desc, socket_id, &port_dev_info.default_rxconf, rx_pktmbuf_pool[socket_id]);
+        if (ret == 0) {
+            RTE_LOG(INFO, Mao, "Init setup rx queue for port %lu, lcore %d, queue 0, OK.\n", port_id, lcore_id);
+        } else {
+            RTE_LOG(ERR, Mao, "Fail, unable to Init setup rx queue for port %lu, lcore %d, queue 0, ret %d, %s.\n", port_id, lcore_id, ret, rte_strerror(-ret));
         }
     }
 }
@@ -347,7 +376,9 @@ int main (int argc, char ** argv) {
     }
 
     init_lcore();
-    init_pktmbuf_mem_pool();
+
+    init_rx_pktmbuf_mem_pool();
+    init_tx_buffer();
 
 //    check_port_config();
     init_port();
