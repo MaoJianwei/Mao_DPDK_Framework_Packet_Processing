@@ -28,3 +28,18 @@
 
 // debug configuration
 #define Mao_PACKET_MEMPOOL_PACKET_NUMBER (8192 - 1)
+
+// tools constant
+#define Mao_PORT_DISABLED_MANUALLY ((unsigned int)0xFFFFFFFF)
+#define Mao_PORT_ENABLED ((unsigned int)0x1)
+#define Mao_PORT_IDLE ((unsigned int)0x0)
+
+#define Mao_LCORE_DISABLED_MANUALLY ((unsigned int)0xFFFFFFFF)
+#define Mao_LCORE_ENABLED ((unsigned int)0x1)
+#define Mao_LCORE_IDLE ((unsigned int)0x0)
+
+
+
+#define Mao_PORT_ID_INVALID ((unsigned int)0xFFFFFFFF)
+#define Mao_LCORE_ID_INVALID ((unsigned int)0xFFFFFFFF)
+
