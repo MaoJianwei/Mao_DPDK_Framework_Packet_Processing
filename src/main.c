@@ -231,7 +231,21 @@ unsigned char check_lcore_config() {
     return 0;
 }
 
-void show_lcore_port_runtime_config();
+void show_lcore_port_runtime_config() {
+    unsigned int i;
+    RTE_LOG(INFO, Mao, "==================================================================================\n");
+
+    for (i = 0; i < ARRAY_SIZE(port_runtime_config); i++) {
+        RTE_LOG(INFO, Mao, "Port: %d, Enabled: %d, TX_Lcore: %d, RX_Lcore: %d\n",
+                i, port_runtime_config[i].enable, port_runtime_config[i].tx_lcore_id, port_runtime_config[i].rx_lcore_id);
+    }
+
+    RTE_LOG(INFO, Mao, "==================================================================================\n");
+
+    for (i = 0; i < ARRAY_SIZE(lcore_runtime_config); i++) {
+        ;
+    }
+}
 
 
 void init_lcore() {
