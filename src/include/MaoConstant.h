@@ -29,17 +29,39 @@
 // debug configuration
 #define Mao_PACKET_MEMPOOL_PACKET_NUMBER (8192 - 1)
 
+
+
+
 // tools constant
-#define Mao_PORT_DISABLED_MANUALLY ((unsigned int)0xFFFFFFFF)
-#define Mao_PORT_ENABLED ((unsigned int)0x1)
-#define Mao_PORT_IDLE ((unsigned int)0x0)
-
-#define Mao_LCORE_DISABLED_MANUALLY ((unsigned int)0xFFFFFFFF)
-#define Mao_LCORE_ENABLED ((unsigned int)0x1)
-#define Mao_LCORE_IDLE ((unsigned int)0x0)
-
-
-
 #define Mao_PORT_ID_INVALID ((unsigned int)0xFFFFFFFF)
 #define Mao_LCORE_ID_INVALID ((unsigned int)0xFFFFFFFF)
+
+enum mao_port_state {
+    // The order is important
+    Mao_PORT_STATE_IDLE,
+    Mao_PORT_STATE_ENABLE,
+    Mao_PORT_STATE_DISABLE_MANUALLY,
+    Mao_PORT_STATE_MAX
+};
+const char * mao_port_state_name[] = {
+        "Idle",
+        "Enabled",
+        "Disabled",
+        "Invalid(MAX)"
+};
+
+
+enum mao_lcore_state {
+    // The order is important
+    Mao_LCORE_STATE_IDLE,
+    Mao_LCORE_STATE_ENABLE,
+    Mao_LCORE_STATE_DISABLED_MANUALLY,
+    Mao_LCORE_STATE_MAX
+};
+const char * mao_lcore_state_name[] = {
+        "Idle",
+        "Enabled",
+        "Disabled",
+        "Invalid(MAX)"
+};
 

@@ -89,7 +89,7 @@ void init_lcore_port_runtime_config() {
 };
 
 void debug_inject_lcore_config() {
-    lcore_runtime_config[0].enable = Mao_LCORE_ENABLED;
+    lcore_runtime_config[0].enable = Mao_LCORE_STATE_ENABLE;
     lcore_runtime_config[0].nb_rx_port++;
     lcore_runtime_config[0].rx_port_ids[0] = 0;
     lcore_runtime_config[0].nb_tx_port++;
@@ -97,7 +97,7 @@ void debug_inject_lcore_config() {
 //    lcore_runtime_config[0].tx_buffers[0] = rte_zmalloc_socket("lcore0_tx_buffer",
 //        RTE_ETH_TX_BUFFER_SIZE(Mao_MAX_PACKET_BURST), 0,rte_eth_dev_socket_id(0));
 
-    lcore_runtime_config[1].enable = Mao_LCORE_ENABLED;
+    lcore_runtime_config[1].enable = Mao_LCORE_STATE_ENABLE;
     lcore_runtime_config[1].nb_rx_port++;
     lcore_runtime_config[1].rx_port_ids[0] = 1;
     lcore_runtime_config[1].nb_tx_port++;
@@ -118,7 +118,7 @@ void complement_lcore_config() {
     unsigned int lcore_id;
     unsigned int port_id;
     RTE_ETH_FOREACH_DEV(port_id) {
-        if (Mao_PORT_DISABLED_MANUALLY != port_runtime_config[port_id].enable) {
+        if (Mao_PORT_STATE_DISABLE_MANUALLY != port_runtime_config[port_id].enable) {
 
             port_socket_id = rte_eth_dev_socket_id(port_id);
 
@@ -150,11 +150,11 @@ void complement_lcore_config() {
                 }
 
                 if (Mao_LCORE_ID_INVALID != select_lcore_id) {
-                    lcore_runtime_config[select_lcore_id].enable = Mao_LCORE_ENABLED;
+                    lcore_runtime_config[select_lcore_id].enable = Mao_LCORE_STATE_ENABLE;
                     lcore_runtime_config[select_lcore_id].rx_port_ids[lcore_runtime_config[select_lcore_id].nb_rx_port] = port_id;
                     lcore_runtime_config[select_lcore_id].nb_rx_port++;
 
-                    port_runtime_config[port_id].enable = Mao_PORT_ENABLED;
+                    port_runtime_config[port_id].enable = Mao_PORT_STATE_ENABLE;
                     port_runtime_config[port_id].rx_lcore_id = select_lcore_id;
                 } else {
                     RTE_LOG(WARNING, Mao,
@@ -193,11 +193,11 @@ void complement_lcore_config() {
                 }
 
                 if (Mao_LCORE_ID_INVALID != select_lcore_id) {
-                    lcore_runtime_config[select_lcore_id].enable = Mao_LCORE_ENABLED;
+                    lcore_runtime_config[select_lcore_id].enable = Mao_LCORE_STATE_ENABLE;
                     lcore_runtime_config[select_lcore_id].tx_port_ids[lcore_runtime_config[select_lcore_id].nb_tx_port] = port_id;
                     lcore_runtime_config[select_lcore_id].nb_tx_port++;
 
-                    port_runtime_config[port_id].enable = Mao_PORT_ENABLED;
+                    port_runtime_config[port_id].enable = Mao_PORT_STATE_ENABLE;
                     port_runtime_config[port_id].tx_lcore_id = select_lcore_id;
                 } else {
                     RTE_LOG(WARNING, Mao,
@@ -234,17 +234,22 @@ unsigned char check_lcore_config() {
 void show_lcore_port_runtime_config() {
     unsigned int i;
     RTE_LOG(INFO, Mao, "==================================================================================\n");
-
     for (i = 0; i < ARRAY_SIZE(port_runtime_config); i++) {
-        RTE_LOG(INFO, Mao, "Port: %d, Enabled: %d, TX_Lcore: %d, RX_Lcore: %d\n",
-                i, port_runtime_config[i].enable, port_runtime_config[i].tx_lcore_id, port_runtime_config[i].rx_lcore_id);
+        if (Mao_PORT_STATE_IDLE != port_runtime_config[i].enable) {
+            RTE_LOG(INFO, Mao, "Port: %d, State: %s, TX_Lcore: %d, RX_Lcore: %d\n",
+                    i, mao_port_state_name[port_runtime_config[i].enable], port_runtime_config[i].tx_lcore_id,
+                    port_runtime_config[i].rx_lcore_id);
+        }
     }
-
     RTE_LOG(INFO, Mao, "==================================================================================\n");
-
     for (i = 0; i < ARRAY_SIZE(lcore_runtime_config); i++) {
-        ;
+        if (Mao_LCORE_STATE_IDLE != lcore_runtime_config[i].enable) {
+            RTE_LOG(INFO, Mao, "Lcore: %d, State: %s, TX_Ports: %d, RX_Ports: %d\n",
+                    i, mao_lcore_state_name[lcore_runtime_config[i].enable],
+                    lcore_runtime_config[i].nb_tx_port, lcore_runtime_config[i].nb_rx_port);
+        }
     }
+    RTE_LOG(INFO, Mao, "==================================================================================\n");
 }
 
 
@@ -276,7 +281,7 @@ void init_rx_pktmbuf_mem_pool() {
 
         // just create pool on the sockets to be use.
 
-        if (Mao_LCORE_ENABLED == lcore_runtime_config[lcore_id].enable) {
+        if (Mao_LCORE_STATE_ENABLE == lcore_runtime_config[lcore_id].enable) {
             socket_id = rte_lcore_to_socket_id(lcore_id);
             if (0 == rx_pktmbuf_pool[socket_id]) {
                 snprintf(tmp_name, sizeof(tmp_name), "rx-pktmbuf-pool-%d", socket_id);
@@ -297,7 +302,7 @@ void init_tx_buffer() {
     unsigned int port_id;
     unsigned int socket_id;
     RTE_ETH_FOREACH_DEV(port_id) {
-        if (Mao_PORT_DISABLED_MANUALLY != port_runtime_config[port_id].enable) {
+        if (Mao_PORT_STATE_DISABLE_MANUALLY != port_runtime_config[port_id].enable) {
             socket_id = rte_lcore_to_socket_id(port_runtime_config[port_id].tx_lcore_id);
 
             snprintf(tmp_name, sizeof(tmp_name), "tx-buffer-port-%d", port_id);
@@ -346,7 +351,7 @@ void init_port() {
     unsigned int rx_socket_id;
     RTE_ETH_FOREACH_DEV(port_id) {
 
-        if (Mao_PORT_DISABLED_MANUALLY != port_runtime_config[port_id].enable) {
+        if (Mao_PORT_STATE_DISABLE_MANUALLY != port_runtime_config[port_id].enable) {
 
             struct rte_eth_dev_info port_dev_info;
             ret = rte_eth_dev_info_get(port_id, &port_dev_info);
@@ -437,7 +442,7 @@ void launch_port() {
     unsigned int ret;
     unsigned int port_id;
     RTE_ETH_FOREACH_DEV(port_id) {
-        if (Mao_PORT_ENABLED == port_runtime_config[port_id].enable) {
+        if (Mao_PORT_STATE_ENABLE == port_runtime_config[port_id].enable) {
             ret = rte_eth_dev_start(port_id);
             if (ret != 0) {
                 RTE_LOG(ERR, Mao, "Fail, unable to start port %d, ret %d, %s.\n", port_id, ret, rte_strerror(-ret));
@@ -459,7 +464,7 @@ int debug_loop() {
     // TEST PASS: RTE_LOG(INFO, Mao, "here is lcore %d, socket %d.\n", rte_lcore_id(), rte_socket_id());
 
     struct lcore_runtime *me = &lcore_runtime_config[rte_lcore_id()];
-    if (Mao_LCORE_ENABLED != me->enable || (me->nb_rx_port == 0 && me->nb_tx_port == 0)) {
+    if (Mao_LCORE_STATE_ENABLE != me->enable || (me->nb_rx_port == 0 && me->nb_tx_port == 0)) {
         return 0;
     }
 
