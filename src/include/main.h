@@ -1,0 +1,25 @@
+//
+// Created by ip on 2/4/21.
+//
+
+#ifndef MAO_DPDK_FRAMEWORK_PACKET_PROCESSOR_MAIN_H
+#define MAO_DPDK_FRAMEWORK_PACKET_PROCESSOR_MAIN_H
+
+struct lcore_runtime {
+    unsigned int enable;
+
+    unsigned int nb_rx_port;
+    unsigned int rx_port_ids[Mao_MAX_PORTS_PER_LCORE];
+
+    unsigned int nb_tx_port;
+    unsigned int tx_port_ids[Mao_MAX_PORTS_PER_LCORE];
+};
+
+// now, one port - one queue.
+struct port_runtime {
+    unsigned int enable;
+    unsigned int rx_lcore_id;
+    unsigned int tx_lcore_id;
+};
+
+#endif //MAO_DPDK_FRAMEWORK_PACKET_PROCESSOR_MAIN_H

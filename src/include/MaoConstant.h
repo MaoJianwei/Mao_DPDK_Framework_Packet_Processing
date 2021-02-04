@@ -25,6 +25,7 @@
 #define Mao_MAX_PACKET_BURST 32
 #define Mao_PACKET_MEMPOOL_CACHE_SIZE 256
 
+#define Mao_TX_FLUSH_PERIOD_US 50   // 50us /* L3fwd-power example: TX drain every ~100us */
 
 // debug configuration
 #define Mao_PACKET_MEMPOOL_PACKET_NUMBER (8192 - 1)

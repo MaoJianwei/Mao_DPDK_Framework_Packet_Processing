@@ -5,41 +5,14 @@
 #include <rte_eal.h>
 #include <rte_ethdev.h>
 #include <rte_malloc.h>
-#include <include/MaoMacroTool.h>
 
 
+#include "include/MaoMacroTool.h"
 #include "include/MaoConstant.h"
+#include "include/main.h"
 
-
-
-
-//struct port_runtime {
-//    unsigned short port_id;
-//    unsigned short lcore_id;
-////    unsigned xxx tx_buffer;
-////    unsigned xxx rx_buffer;
-//    unsigned char assigned; // avoid to read unused port
-//};
-
-struct lcore_runtime {
-    unsigned int enable;
-
-    unsigned int nb_rx_port;
-    unsigned int rx_port_ids[Mao_MAX_PORTS_PER_LCORE];
-
-    unsigned int nb_tx_port;
-    unsigned int tx_port_ids[Mao_MAX_PORTS_PER_LCORE];
-};
-
-// now, one port - one queue.
-struct port_runtime {
-    unsigned int enable;
-    unsigned int rx_lcore_id;
-    unsigned int tx_lcore_id;
-};
 
 // all runtime variables
-
 struct lcore_runtime lcore_runtime_config[Mao_MAX_LCORE];
 struct port_runtime port_runtime_config[Mao_MAX_ETHPORTS];
 struct rte_mempool *rx_pktmbuf_pool[Mao_MAX_SOCKET]; // RX buffer
@@ -460,7 +433,22 @@ void launch_port() {
     }
 }
 
-int debug_loop() {
+
+//struct interrupt_transparent_data {
+//
+//};
+//// multi-lcore use this.
+//void register_interrupt_event(struct lcore_runtime * me) {
+//
+//    unsigned int event_transparent_data = 0;
+//    unsigned int i;
+//    for (i = 0; i < me->nb_rx_port; i++) {
+//        event_transparent_datame->rx_port_ids[i]
+//    }
+//
+//}
+
+int forward_loop() {
     // TEST PASS: RTE_LOG(INFO, Mao, "here is lcore %d, socket %d.\n", rte_lcore_id(), rte_socket_id());
 
     struct lcore_runtime *me = &lcore_runtime_config[rte_lcore_id()];
@@ -469,24 +457,56 @@ int debug_loop() {
     }
 
 
+
+    register_interrupt_event();
+
 //    RTE_LOG(INFO, Mao, "checked need shutdown %d, lcore %d, socket %d.\n", need_shutdown, rte_lcore_id(), rte_socket_id());
+
+    // TODO: what is RDTSC?
+    const uint64_t flush_period_tsc = Mao_TX_FLUSH_PERIOD_US * ((rte_get_tsc_hz() + US_PER_S - 1) / US_PER_S);
+    uint64_t previous_tsc = 0;
+    uint64_t current_tsc;
+
     while (!need_shutdown) {
-//        if (need_shutdown) {
-//            RTE_LOG(INFO, Mao, "IF need shutdown %d, lcore %d, socket %d.\n", need_shutdown, rte_lcore_id(), rte_socket_id());
-//        }
-        ;
+
+        // TX
+        current_tsc = rte_rdtsc();
+        if(unlikely(current_tsc - previous_tsc > flush_period_tsc)) {
+            unsigned int i;
+            unsigned int port_id;
+            for (i = 0; i < me->nb_tx_port; i++) {
+                port_id = me->tx_port_ids[i];
+                rte_eth_tx_buffer_flush(port_id, 0, tx_buffers[port_id]);
+            }
+        }
+        previous_tsc = current_tsc;
+
+
+
+        // RX
+        // 1. receive from and check all ports.
+        // 2. for every port, increase the hint for the ports without any packet.
+        // 3. check if there is no packet received in this round.
+        // 4. If yes, sleep shortly or wait for interrupt, according to all hints of the ports.
+        //    - If no, loop to start next round.
+        //
+        // * threshold of hint: 300.
+        // * sleep: 1us. Mao: will try to be {minimal hint}us
+        // * wait timeout: 10?
+
+
     }
 //    RTE_LOG(INFO, Mao, "while need shutdown %d, lcore %d, socket %d.\n", need_shutdown, rte_lcore_id(), rte_socket_id());
     return 0;
 }
 
 void launch_lcore() {
-    rte_eal_mp_remote_launch(debug_loop, NULL, CALL_MAIN); /* lcore handler also executed by main core. */
+    rte_eal_mp_remote_launch(forward_loop, NULL, CALL_MAIN); /* lcore handler also executed by main core. */
 }
 
 void wait_for_complete() {
 
-    // now, we use CALL_MAIN, so main lcore will first finish debug_loop, then come here to wait others.
+    // now, we use CALL_MAIN, so main lcore will first finish forward_loop, then come here to wait others.
 
     unsigned int lcore_id;
     unsigned int ret;
@@ -506,13 +526,16 @@ void stop_port() {
     RTE_ETH_FOREACH_DEV(port_id) {
         ret = rte_eth_dev_stop(port_id);
         if (ret != 0) {
-            RTE_LOG(WARNING, Mao, "Caution, stop device returns %d, %s.\n", ret, rte_strerror(-ret));
+            RTE_LOG(WARNING, Mao, "Caution, stop port %d returns %d, %s.\n", port_id, ret, rte_strerror(-ret));
         }
+        RTE_LOG(INFO, Mao, "Stop port %d.\n", port_id);
 
-        ret = rte_eth_dev_close(port_id); // may report 'Operation not permitted'.
-        if (ret != 0) {
-            RTE_LOG(WARNING, Mao, "Caution, close device returns %d, %s.\n", ret, rte_strerror(ret > 0 ? ret : -ret));
-        }
+
+        // FIXME: may get 'Invalid port_id=0, Operation not permitted. sudo used.'
+//        ret = rte_eth_dev_close(port_id); // may report 'Operation not permitted'.
+//        if (ret != 0) {
+//            RTE_LOG(WARNING, Mao, "Caution, close device returns %d, %s.\n", ret, rte_strerror(ret > 0 ? ret : -ret));
+//        }
     }
 }
 
