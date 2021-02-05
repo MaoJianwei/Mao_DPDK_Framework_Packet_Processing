@@ -20,4 +20,4 @@ add_executable(
         #Demo/RouterParam/PortLcoreBinding.h
         #Demo/PacketInspector/packetInspector.c Demo/PacketInspector/packetInspector.h dpdk-example/mainpower.c Demo/mainnew.c)
         # dpdk-example/main.c
-        )
+        src/include/main.h)
