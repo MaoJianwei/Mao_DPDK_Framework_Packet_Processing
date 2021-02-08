@@ -1,11 +1,8 @@
 
-
-
 #include <signal.h>
 #include <rte_eal.h>
 #include <rte_ethdev.h>
 #include <rte_malloc.h>
-
 
 #include "include/MaoMacroTool.h"
 #include "include/MaoConstant.h"
@@ -447,6 +444,10 @@ void launch_port() {
 //    }
 //
 //}
+
+void register_interrupt_event() {
+
+}
 
 int forward_loop() {
     // TEST PASS: RTE_LOG(INFO, Mao, "here is lcore %d, socket %d.\n", rte_lcore_id(), rte_socket_id());

@@ -22,4 +22,11 @@ struct port_runtime {
     unsigned int tx_lcore_id;
 };
 
+// treat void* as common data.
+// 8 bytes in total.
+struct port_interrupt_data {
+    unsigned char port_id;
+    unsigned char queue_id;
+    unsigned char reserved[6];
+};
 #endif //MAO_DPDK_FRAMEWORK_PACKET_PROCESSOR_MAIN_H
