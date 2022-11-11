@@ -1,0 +1,68 @@
+/* Enqueue a single packet, and send burst if queue is filled */
+static inline int
+send_single_packet(struct rte_mbuf *m, uint16_t port)
+{
+	uint32_t lcore_id;
+	struct lcore_conf *qconf;
+
+	lcore_id = rte_lcore_id();
+	qconf = &lcore_conf[lcore_id];
+
+	rte_eth_tx_buffer(port, qconf->tx_queue_id[port],
+			qconf->tx_buffer[port], m);
+
+	return 0;
+}
+
+
+/* main processing loop */
+static int main_intr_loop(__rte_unused void *dummy)
+{
+		/*
+		 * TX burst queue drain
+		 */
+		diff_tsc = cur_tsc - prev_tsc;
+		if (unlikely(diff_tsc > drain_tsc)) {
+			for (i = 0; i < qconf->n_tx_port; ++i) {
+				portid = qconf->tx_port_id[i];
+				rte_eth_tx_buffer_flush(portid,
+						qconf->tx_queue_id[portid],
+						qconf->tx_buffer[portid]);
+			}
+			prev_tsc = cur_tsc;
+		}
+
+
+
+int
+main(int argc, char **argv)
+{
+			/* Initialize TX buffers */
+			qconf = &lcore_conf[lcore_id];
+			qconf->tx_buffer[portid] = rte_zmalloc_socket("tx_buffer",
+				RTE_ETH_TX_BUFFER_SIZE(MAX_PKT_BURST), 0,
+				rte_eth_dev_socket_id(portid));
+			if (qconf->tx_buffer[portid] == NULL)
+				rte_exit(EXIT_FAILURE, "Can't allocate tx buffer for port %u\n",
+						 portid);
+
+			rte_eth_tx_buffer_init(qconf->tx_buffer[portid], MAX_PKT_BURST);
+
+
+
+
+
+
+
+
+        /* Get burst of RX packets, from first port of pair. */
+        struct rte_mbuf *bufs[BURST_SIZE];
+        const uint16_t nb_rx = rte_eth_rx_burst(port, 0,
+                bufs, BURST_SIZE);
+
+        if (unlikely(nb_rx == 0))
+            continue;
+
+        /* Send burst of TX packets, to second port of pair. */
+        const uint16_t nb_tx = rte_eth_tx_burst(port ^ 1, 0,
+                bufs, nb_rx);
