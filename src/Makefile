@@ -35,7 +35,7 @@ SRCS-y := main.c
 # Build using pkg-config variables if possible
 ifeq ($(shell pkg-config --exists libdpdk && echo 0),0)
 
-all: static # shared
+all: shared # static # shared
 .PHONY: shared static
 shared: build/$(APP)-shared
 	ln -sf $(APP)-shared build/$(APP)
@@ -45,7 +45,13 @@ static: build/$(APP)-static
 PKGCONF ?= pkg-config
 
 PC_FILE := $(shell $(PKGCONF) --path libdpdk 2>/dev/null)
-CFLAGS += -O3 $(shell $(PKGCONF) --cflags libdpdk) $(maodir)
+
+# Mao: better running
+# CFLAGS += -O3 $(shell $(PKGCONF) --cflags libdpdk) $(maodir)
+
+# Mao: enable breakpoint debugging
+CFLAGS += -O0 -g $(shell $(PKGCONF) --cflags libdpdk) $(maodir)
+
 # Add flag to allow experimental API as l2fwd uses rte_ethdev_set_ptype API
 CFLAGS += -DALLOW_EXPERIMENTAL_API
 LDFLAGS_SHARED = $(shell $(PKGCONF) --libs libdpdk)
