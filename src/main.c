@@ -32,10 +32,64 @@ static void sys_signal_processor(int signal) {
             need_shutdown = 1;
             RTE_LOG(INFO, Mao, "get SIGTERM signal %d, need_shutdown %d.\n", signal, need_shutdown);
             break;
+        case SIGUSR1: // kill -10
+            RTE_LOG(INFO, Mao, "get SIGTERM signal %d, switch to video flow 1.\n", signal);
+            break;
+        case SIGUSR2: // kill -12
+            RTE_LOG(INFO, Mao, "get SIGTERM signal %d, switch to video flow 2.\n", signal);
+            break;
         default:
             RTE_LOG(INFO, Mao, "get default signal %d, need_shutdown %d.\n", signal, need_shutdown);
     }
 }
+
+
+unsigned int tmp_count = 0;
+void service_logic(struct rte_mbuf *pkt, unsigned int port_id) {
+    // attention: if drop the packet, free it manually
+
+    tmp_count++;
+    RTE_LOG(INFO, Mao, "=====Rx count: %d, PortID %d ====\n", tmp_count, port_id);
+
+    struct rte_ether_hdr * eth_hdr = rte_pktmbuf_mtod(pkt, struct rte_ether_hdr *);
+    if (eth_hdr->ether_type == rte_cpu_to_be_16(RTE_ETHER_TYPE_IPV6)) {
+
+        struct rte_ipv6_hdr * ipv6_hdr = (struct rte_ipv6_hdr *)(eth_hdr + 1);
+
+        RTE_LOG(INFO, Mao, "Ethernet:\n"
+                           "Dst addr: %02X-%02X-%02X-%02X-%02X-%02X\n"
+                           "Src addr: %02X-%02X-%02X-%02X-%02X-%02X\n"
+                           "EtherType: %04X\n"
+                           "IPv6:\n"
+                           "Ver: %02X  TC: %02X, FlowLabel: %05X\n"
+                           "PayloadLen: %04X-%d, NH:%d, TTL:%d\n"
+        ,
+                eth_hdr->d_addr.addr_bytes[0],
+                eth_hdr->d_addr.addr_bytes[1],
+                eth_hdr->d_addr.addr_bytes[2],
+                eth_hdr->d_addr.addr_bytes[3],
+                eth_hdr->d_addr.addr_bytes[4],
+                eth_hdr->d_addr.addr_bytes[5],
+                eth_hdr->s_addr.addr_bytes[0],
+                eth_hdr->s_addr.addr_bytes[1],
+                eth_hdr->s_addr.addr_bytes[2],
+                eth_hdr->s_addr.addr_bytes[3],
+                eth_hdr->s_addr.addr_bytes[4],
+                eth_hdr->s_addr.addr_bytes[5],
+                rte_be_to_cpu_16(eth_hdr->ether_type),
+                rte_be_to_cpu_32(ipv6_hdr->vtc_flow) >> 28,
+                (rte_be_to_cpu_32(ipv6_hdr->vtc_flow) >> 20) & 0x8,
+                rte_be_to_cpu_32(ipv6_hdr->vtc_flow) & 0x20,
+                ipv6_hdr->payload_len, rte_be_to_cpu_16(ipv6_hdr->payload_len),
+                ipv6_hdr->proto,
+                ipv6_hdr->hop_limits
+        );
+    }
+    rte_pktmbuf_free(pkt);
+}
+
+
+
 
 void init_timer_subsystem() {
     // may need
@@ -449,6 +503,9 @@ void register_interrupt_event() {
 
 }
 
+
+
+
 int forward_loop() {
     // TEST PASS: RTE_LOG(INFO, Mao, "here is lcore %d, socket %d.\n", rte_lcore_id(), rte_socket_id());
 
@@ -468,9 +525,11 @@ int forward_loop() {
     uint64_t previous_tsc = 0;
     uint64_t current_tsc;
 
+
+    struct rte_mbuf *rxPktBuf[Mao_MAX_PACKET_BURST];
     while (!need_shutdown) {
 
-        // TX
+        // TX - drain tx queues of the responsible ports.
         current_tsc = rte_rdtsc();
         if(unlikely(current_tsc - previous_tsc > flush_period_tsc)) {
             unsigned int i;
@@ -481,6 +540,24 @@ int forward_loop() {
             }
         }
         previous_tsc = current_tsc;
+
+
+        // RX - receive, process and send to other ports.
+        unsigned int i, j;
+        unsigned int port_id;
+        unsigned int nb_rx;
+        struct rte_mbuf *pkt;
+        for (i = 0; i < me->nb_rx_port; i++) {
+            port_id = me->rx_port_ids[i];
+            nb_rx = rte_eth_rx_burst(port_id, 0, rxPktBuf, Mao_MAX_PACKET_BURST);
+            for (j = 0; j < nb_rx; j++) {
+                pkt = rxPktBuf[j];
+                rte_prefetch0(rte_pktmbuf_mtod(pkt, void *));
+
+                // todo service logic
+                service_logic(pkt, port_id);
+            }
+        }
 
 
 
@@ -545,6 +622,8 @@ int main(int argc, char **argv) {
     // register callback for system signal, e.g. Ctrl+C or else
     signal(SIGINT, sys_signal_processor);
     signal(SIGTERM, sys_signal_processor);
+    signal(SIGUSR1, sys_signal_processor);
+    signal(SIGUSR2, sys_signal_processor);
 
     int ret;
     printf("Mao: Init EAL...\n");
