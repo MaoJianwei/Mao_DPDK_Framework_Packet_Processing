@@ -16,6 +16,7 @@
 // solid configuration
 #define Mao_RX_QUEUE_PER_PORT 1
 #define Mao_TX_QUEUE_PER_PORT 1
+#define Mao_TxRx_ONLY_ONE_QUEUE_ID 0
 
 #define Mao_RX_DESC_PER_PORT 1024
 #define Mao_TX_DESC_PER_PORT 1024

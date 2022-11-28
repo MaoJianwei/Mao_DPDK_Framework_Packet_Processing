@@ -79,13 +79,19 @@ void service_logic(struct rte_mbuf *pkt, unsigned int port_id) {
                 rte_be_to_cpu_16(eth_hdr->ether_type),
                 rte_be_to_cpu_32(ipv6_hdr->vtc_flow) >> 28,
                 (rte_be_to_cpu_32(ipv6_hdr->vtc_flow) >> 20) & 0x8,
-                rte_be_to_cpu_32(ipv6_hdr->vtc_flow) & 0x20,
-                ipv6_hdr->payload_len, rte_be_to_cpu_16(ipv6_hdr->payload_len),
+                rte_be_to_cpu_32(ipv6_hdr->vtc_flow) & 0xFFFFF,
+                rte_be_to_cpu_16(ipv6_hdr->payload_len), rte_be_to_cpu_16(ipv6_hdr->payload_len),
                 ipv6_hdr->proto,
                 ipv6_hdr->hop_limits
         );
+
+        // debug now: send back to the source port
+        rte_eth_tx_buffer(port_id, Mao_TxRx_ONLY_ONE_QUEUE_ID, tx_buffers[port_id], pkt);
+
+        // if we are going to send the packet, do not free the pktmbuf.
+    } else {
+        rte_pktmbuf_free(pkt);
     }
-    rte_pktmbuf_free(pkt);
 }
 
 
@@ -119,7 +125,7 @@ void debug_inject_lcore_config() {
     lcore_runtime_config[0].nb_tx_port++;
     lcore_runtime_config[0].tx_port_ids[0] = 0;
 //    lcore_runtime_config[0].tx_buffers[0] = rte_zmalloc_socket("lcore0_tx_buffer",
-//        RTE_ETH_TX_BUFFER_SIZE(Mao_MAX_PACKET_BURST), 0,rte_eth_dev_socket_id(0));
+//        RTE_ETH_TX_BUFFER_SIZE(Mao_MAX_PACKET_BURST), 0, rte_eth_dev_socket_id(0));
 
     lcore_runtime_config[1].enable = Mao_LCORE_STATE_ENABLE;
     lcore_runtime_config[1].nb_rx_port++;
@@ -127,7 +133,7 @@ void debug_inject_lcore_config() {
     lcore_runtime_config[1].nb_tx_port++;
     lcore_runtime_config[1].tx_port_ids[0] = 1;
 //    lcore_runtime_config[1].tx_buffers[0] = rte_zmalloc_socket("lcore1_tx_buffer",
-//        RTE_ETH_TX_BUFFER_SIZE(Mao_MAX_PACKET_BURST), 0,rte_eth_dev_socket_id(1));
+//        RTE_ETH_TX_BUFFER_SIZE(Mao_MAX_PACKET_BURST), 0, rte_eth_dev_socket_id(1));
 }
 
 void load_lcore_config() {
@@ -330,8 +336,9 @@ void init_tx_buffer() {
             socket_id = rte_lcore_to_socket_id(port_runtime_config[port_id].tx_lcore_id);
 
             snprintf(tmp_name, sizeof(tmp_name), "tx-buffer-port-%d", port_id);
-            tx_buffers[port_id] = rte_zmalloc_socket(tmp_name, RTE_ETH_TX_BUFFER_SIZE(Mao_MAX_PACKET_BURST), 0,
-                                                     socket_id);
+            tx_buffers[port_id] = rte_zmalloc_socket(tmp_name, RTE_ETH_TX_BUFFER_SIZE(Mao_MAX_PACKET_BURST), 0, socket_id);
+            // TODO: rte_free
+
 
             ret = rte_eth_tx_buffer_init(tx_buffers[port_id], Mao_MAX_PACKET_BURST);
             if (ret == 0) {
@@ -413,13 +420,12 @@ void init_port() {
 
             // Mao: now, one port - one queue(0) - one tx lcore.
             tx_socket_id = rte_lcore_to_socket_id(port_runtime_config[port_id].tx_lcore_id);
-            ret = rte_eth_tx_queue_setup(port_id, 0, nb_tx_desc, tx_socket_id, &port_dev_info.default_txconf);
+            ret = rte_eth_tx_queue_setup(port_id, Mao_TxRx_ONLY_ONE_QUEUE_ID, nb_tx_desc, tx_socket_id, &port_dev_info.default_txconf);
             if (ret == 0) {
-                RTE_LOG(INFO, Mao, "Init setup tx queue for port %lu, socket %d, queue 0, OK.\n", port_id,
-                        tx_socket_id);
+                RTE_LOG(INFO, Mao, "Init setup tx queue for port %lu, socket %d, queue %d, OK.\n", port_id, tx_socket_id, Mao_TxRx_ONLY_ONE_QUEUE_ID);
             } else {
-                RTE_LOG(ERR, Mao, "Fail, unable to Init setup tx queue for port %lu, socket %d, queue 0, ret %d, %s.\n",
-                        port_id, tx_socket_id, ret, rte_strerror(-ret));
+                RTE_LOG(ERR, Mao, "Fail, unable to Init setup tx queue for port %lu, socket %d, queue %d, ret %d, %s.\n",
+                        port_id, tx_socket_id, Mao_TxRx_ONLY_ONE_QUEUE_ID, ret, rte_strerror(-ret));
             }
 
 
@@ -449,14 +455,14 @@ void init_port() {
 
             // Mao: now, one port - one queue(0) - one rx lcore.
             rx_socket_id = rte_lcore_to_socket_id(port_runtime_config[port_id].rx_lcore_id);
-            ret = rte_eth_rx_queue_setup(port_id, 0, nb_rx_desc, rx_socket_id,
+            ret = rte_eth_rx_queue_setup(port_id, Mao_TxRx_ONLY_ONE_QUEUE_ID, nb_rx_desc, rx_socket_id,
                                          &port_dev_info.default_rxconf, rx_pktmbuf_pool[rx_socket_id]);
             if (ret == 0) {
-                RTE_LOG(INFO, Mao, "Init setup rx queue for port %lu, socket %d, queue 0, OK.\n", port_id,
-                        rx_socket_id);
+                RTE_LOG(INFO, Mao, "Init setup rx queue for port %lu, socket %d, queue %d, OK.\n", port_id,
+                        rx_socket_id, Mao_TxRx_ONLY_ONE_QUEUE_ID);
             } else {
-                RTE_LOG(ERR, Mao, "Fail, unable to Init setup rx queue for port %lu, socket %d, queue 0, ret %d, %s.\n",
-                        port_id, rx_socket_id, ret, rte_strerror(-ret));
+                RTE_LOG(ERR, Mao, "Fail, unable to Init setup rx queue for port %lu, socket %d, queue %d, ret %d, %s.\n",
+                        port_id, rx_socket_id, Mao_TxRx_ONLY_ONE_QUEUE_ID, ret, rte_strerror(-ret));
             }
         }
     }
@@ -536,7 +542,7 @@ int forward_loop() {
             unsigned int port_id;
             for (i = 0; i < me->nb_tx_port; i++) {
                 port_id = me->tx_port_ids[i];
-                rte_eth_tx_buffer_flush(port_id, 0, tx_buffers[port_id]);
+                rte_eth_tx_buffer_flush(port_id, Mao_TxRx_ONLY_ONE_QUEUE_ID, tx_buffers[port_id]);
             }
         }
         previous_tsc = current_tsc;
@@ -549,7 +555,7 @@ int forward_loop() {
         struct rte_mbuf *pkt;
         for (i = 0; i < me->nb_rx_port; i++) {
             port_id = me->rx_port_ids[i];
-            nb_rx = rte_eth_rx_burst(port_id, 0, rxPktBuf, Mao_MAX_PACKET_BURST);
+            nb_rx = rte_eth_rx_burst(port_id, Mao_TxRx_ONLY_ONE_QUEUE_ID, rxPktBuf, Mao_MAX_PACKET_BURST);
             for (j = 0; j < nb_rx; j++) {
                 pkt = rxPktBuf[j];
                 rte_prefetch0(rte_pktmbuf_mtod(pkt, void *));
