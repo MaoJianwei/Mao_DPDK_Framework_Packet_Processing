@@ -86,7 +86,8 @@ void service_logic(struct rte_mbuf *pkt, unsigned int port_id) {
         );
 
         // debug now: send back to the source port
-        rte_eth_tx_buffer(port_id, Mao_TxRx_ONLY_ONE_QUEUE_ID, tx_buffers[port_id], pkt);
+//        rte_eth_tx_buffer(port_id, Mao_TxRx_ONLY_ONE_QUEUE_ID, tx_buffers[port_id], pkt);
+        rte_pktmbuf_free(pkt);
 
         // if we are going to send the packet, do not free the pktmbuf.
     } else {
@@ -97,52 +98,165 @@ void service_logic(struct rte_mbuf *pkt, unsigned int port_id) {
 
 
 
-void init_timer_subsystem() {
+static void init_timer_subsystem() {
     // may need
     ;
 }
 
-void init_power_subsystem() {
+static void init_power_subsystem() {
     // may need
     ;
 }
 
-void init_lcore_port_runtime_config() {
+static void show_port_info() {
+    RTE_LOG(INFO, Mao, "======================================= Port Info ========================================\n");
+    uint16_t nb_ports = rte_eth_dev_count_avail();
+    RTE_LOG(INFO, Mao, "Port count %d\n", nb_ports);
+
+    uint64_t port_id;
+    RTE_ETH_FOREACH_DEV(port_id) {
+        struct rte_eth_dev_info port_dev_info;
+        int ret = rte_eth_dev_info_get(port_id, &port_dev_info);
+        if (ret != 0) {
+            RTE_LOG(WARNING, Mao, "Fail, unable to get dev info for port %lu, %d\n", port_id, ret);
+        }
+        RTE_LOG(INFO, Mao, "Port info: %s, %s, NUMA:%d, MTU:%d~%d, Tx_Queues:%d, Rx_Queues:%d\n",
+                port_dev_info.device->name,
+                port_dev_info.device->driver->name,
+                port_dev_info.device->numa_node,
+                port_dev_info.min_mtu,
+                port_dev_info.max_mtu,
+                port_dev_info.max_tx_queues,
+                port_dev_info.max_rx_queues
+        );
+    }
+    RTE_LOG(INFO, Mao, "==========================================================================================\n");
+}
+
+static void init_lcore_port_runtime_config() {
 
     unsigned int i;
     for (i = 0; i < ARRAY_SIZE(port_runtime_config); i++) {
+        port_runtime_config[i].enable = Mao_PORT_STATE_IDLE;
         port_runtime_config[i].rx_lcore_id = Mao_LCORE_ID_INVALID;
         port_runtime_config[i].tx_lcore_id = Mao_LCORE_ID_INVALID;
     }
 
-    // now, we do not need to init lcore_runtime_config manually.
+    for (i = 0; i < ARRAY_SIZE(lcore_runtime_config); i++) {
+        lcore_runtime_config[i].enable = Mao_LCORE_STATE_IDLE;
+        lcore_runtime_config[i].nb_tx_port = 0;
+        lcore_runtime_config[i].nb_rx_port = 0;
+    }
 };
 
-void debug_inject_lcore_config() {
-    lcore_runtime_config[0].enable = Mao_LCORE_STATE_ENABLE;
-    lcore_runtime_config[0].nb_rx_port++;
-    lcore_runtime_config[0].rx_port_ids[0] = 0;
-    lcore_runtime_config[0].nb_tx_port++;
-    lcore_runtime_config[0].tx_port_ids[0] = 0;
-//    lcore_runtime_config[0].tx_buffers[0] = rte_zmalloc_socket("lcore0_tx_buffer",
-//        RTE_ETH_TX_BUFFER_SIZE(Mao_MAX_PACKET_BURST), 0, rte_eth_dev_socket_id(0));
+void config_bind_port_to_lcore(unsigned int port_id, unsigned int lcore_id) {
+    if (port_id > Mao_MAX_ETHPORTS) {
+        RTE_LOG(WARNING, Mao,
+                "Fail to bind port: port id %d is larger than Mao_MAX_ETHPORTS(%d).\n",
+                port_id, Mao_MAX_ETHPORTS);
+        return;
+    }
+    if (lcore_id > Mao_MAX_LCORE) {
+        RTE_LOG(WARNING, Mao,
+                "Fail to bind port: lcore id %d is larger than Mao_MAX_LCORE(%d).\n",
+                lcore_id, Mao_MAX_LCORE);
+        return;
+    }
 
-    lcore_runtime_config[1].enable = Mao_LCORE_STATE_ENABLE;
-    lcore_runtime_config[1].nb_rx_port++;
-    lcore_runtime_config[1].rx_port_ids[0] = 1;
-    lcore_runtime_config[1].nb_tx_port++;
-    lcore_runtime_config[1].tx_port_ids[0] = 1;
-//    lcore_runtime_config[1].tx_buffers[0] = rte_zmalloc_socket("lcore1_tx_buffer",
-//        RTE_ETH_TX_BUFFER_SIZE(Mao_MAX_PACKET_BURST), 0, rte_eth_dev_socket_id(1));
+    if (Mao_PORT_STATE_DISABLE_MANUALLY == port_runtime_config[port_id].enable) {
+        RTE_LOG(WARNING, Mao,
+                "Fail to bind port: port %d is disabled manually.\n",
+                port_id);
+        return;
+    }
+    if (Mao_LCORE_STATE_DISABLED_MANUALLY == lcore_runtime_config[lcore_id].enable) {
+        RTE_LOG(WARNING, Mao,
+                "Fail to bind port: lcore %d is disabled manually.\n",
+                lcore_id);
+        return;
+    }
+
+    if (lcore_runtime_config[lcore_id].nb_rx_port >= Mao_MAX_PORTS_PER_LCORE) {
+        RTE_LOG(WARNING, Mao,
+                "Fail to bind port: nb_rx_port(%d) of lcore %d is larger than Mao_MAX_PORTS_PER_LCORE(%d).\n",
+                lcore_runtime_config[lcore_id].nb_rx_port, lcore_id, Mao_MAX_PORTS_PER_LCORE);
+        return;
+    }
+    if (lcore_runtime_config[lcore_id].nb_tx_port >= Mao_MAX_PORTS_PER_LCORE) {
+        RTE_LOG(WARNING, Mao,
+                "Fail to bind port: nb_tx_port(%d) of lcore %d is larger than Mao_MAX_PORTS_PER_LCORE(%d).\n",
+                lcore_runtime_config[lcore_id].nb_tx_port, lcore_id, Mao_MAX_PORTS_PER_LCORE);
+        return;
+    }
+
+    lcore_runtime_config[lcore_id].enable = Mao_LCORE_STATE_ENABLE;
+    lcore_runtime_config[lcore_id].rx_port_ids[lcore_runtime_config[lcore_id].nb_rx_port] = port_id;
+    lcore_runtime_config[lcore_id].nb_rx_port++;
+    lcore_runtime_config[lcore_id].tx_port_ids[lcore_runtime_config[lcore_id].nb_tx_port] = port_id;
+    lcore_runtime_config[lcore_id].nb_tx_port++;
+
+    port_runtime_config[port_id].enable = Mao_PORT_STATE_ENABLE;
+    port_runtime_config[port_id].tx_lcore_id = lcore_id;
+    port_runtime_config[port_id].rx_lcore_id = lcore_id;
 }
 
-void load_lcore_config() {
+void config_disable_port(unsigned int port_id) {
+    // todo: test
+    if (port_id > Mao_MAX_ETHPORTS) {
+        RTE_LOG(WARNING, Mao,
+                "Fail to disable port: port id %d is larger than Mao_MAX_ETHPORTS(%d)\n",
+                port_id, Mao_MAX_ETHPORTS);
+        return;
+    }
+    port_runtime_config[port_id].enable = Mao_PORT_STATE_DISABLE_MANUALLY;
+}
+
+void config_disable_lcore(unsigned int lcore_id) {
+    // todo: test
+    if (lcore_id > Mao_MAX_LCORE) {
+        RTE_LOG(WARNING, Mao,
+                "Fail to disable lcore: lcore id %d is larger than Mao_MAX_LCORE(%d)\n",
+                lcore_id, Mao_MAX_LCORE);
+    }
+    lcore_runtime_config[lcore_id].enable = Mao_LCORE_STATE_DISABLED_MANUALLY;
+}
+
+void debug_inject_lcore_config() {
+
+//    config_bind_port_to_lcore(0, 1);
+//    config_disable_port(0);
+    config_bind_port_to_lcore(1, 6);
+
+
+//    config_bind_port_to_lcore(6, 3);
+
+//
+//    // now, we do not need to init lcore_runtime_config manually.
+//
+//    lcore_runtime_config[0].enable = Mao_LCORE_STATE_ENABLE;
+//    lcore_runtime_config[0].nb_rx_port++;
+//    lcore_runtime_config[0].rx_port_ids[0] = 0;
+//    lcore_runtime_config[0].nb_tx_port++;
+//    lcore_runtime_config[0].tx_port_ids[0] = 0;
+////    lcore_runtime_config[0].tx_buffers[0] = rte_zmalloc_socket("lcore0_tx_buffer",
+////        RTE_ETH_TX_BUFFER_SIZE(Mao_MAX_PACKET_BURST), 0, rte_eth_dev_socket_id(0));
+//
+//    lcore_runtime_config[1].enable = Mao_LCORE_STATE_ENABLE;
+//    lcore_runtime_config[1].nb_rx_port++;
+//    lcore_runtime_config[1].rx_port_ids[0] = 1;
+//    lcore_runtime_config[1].nb_tx_port++;
+//    lcore_runtime_config[1].tx_port_ids[0] = 1;
+////    lcore_runtime_config[1].tx_buffers[0] = rte_zmalloc_socket("lcore1_tx_buffer",
+////        RTE_ETH_TX_BUFFER_SIZE(Mao_MAX_PACKET_BURST), 0, rte_eth_dev_socket_id(1));
+}
+
+static void load_lcore_config() {
     // todo : load from config file or CLI params
 
-    //    debug_inject_lcore_config();
+    debug_inject_lcore_config();
 }
 
-void complement_lcore_config() {
+static void complement_lcore_config() {
 
     unsigned int port_socket_id;
     unsigned int lcore_id;
@@ -157,7 +271,7 @@ void complement_lcore_config() {
                 // First, try to assign port to same socket.
                 unsigned int select_lcore_id = Mao_LCORE_ID_INVALID;
                 for (lcore_id = 0; lcore_id < ARRAY_SIZE(lcore_runtime_config); lcore_id++) {
-                    if (Mao_LCORE_ID_INVALID == lcore_runtime_config[lcore_id].enable
+                    if (Mao_LCORE_STATE_DISABLED_MANUALLY == lcore_runtime_config[lcore_id].enable
                         || rte_lcore_to_socket_id(lcore_id) != port_socket_id) {
                         continue;
                     }
@@ -169,7 +283,7 @@ void complement_lcore_config() {
                 if (Mao_LCORE_ID_INVALID == select_lcore_id) {
                     // Fallback, try to assign port to other socket.
                     for (lcore_id = 0; lcore_id < ARRAY_SIZE(lcore_runtime_config); lcore_id++) {
-                        if (Mao_LCORE_ID_INVALID == lcore_runtime_config[lcore_id].enable) {
+                        if (Mao_LCORE_STATE_DISABLED_MANUALLY == lcore_runtime_config[lcore_id].enable) {
                             continue;
                         }
                         if (lcore_runtime_config[lcore_id].nb_rx_port < Mao_MAX_PORTS_PER_LCORE) {
@@ -200,7 +314,7 @@ void complement_lcore_config() {
                 // First, try to assign port to same socket.
                 unsigned int select_lcore_id = Mao_LCORE_ID_INVALID;
                 for (lcore_id = 0; lcore_id < ARRAY_SIZE(lcore_runtime_config); lcore_id++) {
-                    if (Mao_LCORE_ID_INVALID == lcore_runtime_config[lcore_id].enable
+                    if (Mao_LCORE_STATE_DISABLED_MANUALLY == lcore_runtime_config[lcore_id].enable
                         || rte_lcore_to_socket_id(lcore_id) != port_socket_id) {
                         continue;
                     }
@@ -212,7 +326,7 @@ void complement_lcore_config() {
                 if (Mao_LCORE_ID_INVALID == select_lcore_id) {
                     // Fallback, try to assign port to other socket.
                     for (lcore_id = 0; lcore_id < ARRAY_SIZE(lcore_runtime_config); lcore_id++) {
-                        if (Mao_LCORE_ID_INVALID == lcore_runtime_config[lcore_id].enable) {
+                        if (Mao_LCORE_STATE_DISABLED_MANUALLY == lcore_runtime_config[lcore_id].enable) {
                             continue;
                         }
                         if (lcore_runtime_config[lcore_id].nb_tx_port < Mao_MAX_PORTS_PER_LCORE) {
@@ -240,7 +354,7 @@ void complement_lcore_config() {
     }
 }
 
-unsigned char check_lcore_config() {
+static unsigned char check_lcore_config() {
     //FIXME: may be enhanced.
 
     unsigned int i, j;
@@ -263,15 +377,15 @@ unsigned char check_lcore_config() {
 
 void show_lcore_port_runtime_config() {
     unsigned int i;
-    RTE_LOG(INFO, Mao, "==================================================================================\n");
+    RTE_LOG(INFO, Mao, "===================================== Runtime Config =====================================\n");
     for (i = 0; i < ARRAY_SIZE(port_runtime_config); i++) {
         if (Mao_PORT_STATE_IDLE != port_runtime_config[i].enable) {
             RTE_LOG(INFO, Mao, "Port: %d, State: %s, TX_Lcore: %d, RX_Lcore: %d\n",
-                    i, mao_port_state_name[port_runtime_config[i].enable], port_runtime_config[i].tx_lcore_id,
-                    port_runtime_config[i].rx_lcore_id);
+                    i, mao_port_state_name[port_runtime_config[i].enable],
+                    port_runtime_config[i].tx_lcore_id, port_runtime_config[i].rx_lcore_id);
         }
     }
-    RTE_LOG(INFO, Mao, "==================================================================================\n");
+    RTE_LOG(INFO, Mao, "------------------------------------------------------------------------------------------\n");
     for (i = 0; i < ARRAY_SIZE(lcore_runtime_config); i++) {
         if (Mao_LCORE_STATE_IDLE != lcore_runtime_config[i].enable) {
             RTE_LOG(INFO, Mao, "Lcore: %d, State: %s, TX_Ports: %d, RX_Ports: %d\n",
@@ -279,15 +393,15 @@ void show_lcore_port_runtime_config() {
                     lcore_runtime_config[i].nb_tx_port, lcore_runtime_config[i].nb_rx_port);
         }
     }
-    RTE_LOG(INFO, Mao, "==================================================================================\n");
+    RTE_LOG(INFO, Mao, "==========================================================================================\n");
 }
 
 
-void init_lcore() {
+static void init_lcore() {
 
 }
 
-void init_rx_pktmbuf_mem_pool() {
+static void init_rx_pktmbuf_mem_pool() {
 
 /*
  * This expression is used to calculate the number of mbufs needed depending on
@@ -322,7 +436,7 @@ void init_rx_pktmbuf_mem_pool() {
     }
 }
 
-void init_tx_buffer() {
+static void init_tx_buffer() {
 
     // Now, tx buffer is closer to lcore.
     // By the way, we recommend that lcore is closer to port. That is what complement_lcore_config does.
@@ -353,7 +467,7 @@ void init_tx_buffer() {
 }
 
 
-void init_port() {
+static void init_port() {
 
     // todo: iterate every lcore to init all rx & tx queues which it takes responsibility. 2021.01.22
 
@@ -369,9 +483,6 @@ void init_port() {
                                 DEV_TX_OFFLOAD_UDP_CKSUM, // FIXME: to add DEV_TX_OFFLOAD_MBUF_FAST_FREE
             }
     };
-
-    uint16_t nb_ports = rte_eth_dev_count_avail();
-    RTE_LOG(INFO, Mao, "Port count %d\n", nb_ports);
 
 
     uint16_t nb_rx_desc = Mao_RX_DESC_PER_PORT;
@@ -393,6 +504,18 @@ void init_port() {
 
             rte_eth_dev_configure(port_id, Mao_RX_QUEUE_PER_PORT, Mao_TX_QUEUE_PER_PORT, &rte_port_config);
             rte_eth_dev_adjust_nb_rx_tx_desc(port_id, &nb_rx_desc, &nb_tx_desc);
+
+            RTE_LOG(INFO, Mao, "Debug port info: %s, %s, %s, %d: %d~%d, %d-%d\n",
+                    port_dev_info.device->name,
+                    port_dev_info.device->driver->name,
+                    port_dev_info.device->driver->name,
+                    port_dev_info.device->numa_node,
+                    port_dev_info.min_mtu,
+                    port_dev_info.max_mtu,
+                    port_dev_info.max_rx_queues,
+                    port_dev_info.max_tx_queues
+            );
+
 
 
 //        //todo: init port's tx buffer & setup port's tx queue
@@ -468,7 +591,7 @@ void init_port() {
     }
 }
 
-void launch_port() {
+static void launch_port() {
     unsigned int ret;
     unsigned int port_id;
     RTE_ETH_FOREACH_DEV(port_id) {
@@ -505,20 +628,22 @@ void launch_port() {
 //
 //}
 
-void register_interrupt_event() {
+static void register_interrupt_event() {
 
 }
 
 
 
 
-int forward_loop() {
+static int forward_loop() {
     // TEST PASS: RTE_LOG(INFO, Mao, "here is lcore %d, socket %d.\n", rte_lcore_id(), rte_socket_id());
 
     struct lcore_runtime *me = &lcore_runtime_config[rte_lcore_id()];
     if (Mao_LCORE_STATE_ENABLE != me->enable || (me->nb_rx_port == 0 && me->nb_tx_port == 0)) {
+//        RTE_LOG(INFO, Mao, "exit forward_loop, lcore %d, socket %d.\n", rte_lcore_id(), rte_lcore_to_socket_id(rte_lcore_id()));
         return 0;
     }
+//    RTE_LOG(INFO, Mao, "running forward_loop, lcore %d, socket %d.\n", rte_lcore_id(), rte_lcore_to_socket_id(rte_lcore_id()));
 
 
 
@@ -584,18 +709,22 @@ int forward_loop() {
     return 0;
 }
 
-void launch_lcore() {
+static void launch_lcore() {
     rte_eal_mp_remote_launch(forward_loop, NULL, CALL_MAIN); /* lcore handler also executed by main core. */
 }
 
-void wait_for_complete() {
+static void wait_for_complete() {
 
     // now, we use CALL_MAIN, so main lcore will first finish forward_loop, then come here to wait others.
+    // Attention, it is busy-waiting(100% use ratio).
 
     unsigned int lcore_id;
     unsigned int ret;
     RTE_LCORE_FOREACH_WORKER(lcore_id) {
-        // TEST PASS: RTE_LOG(INFO, Mao, "To wait lcore %d, socket %d.\n", lcore_id, rte_lcore_to_socket_id(lcore_id));
+        // TEST PASS:
+        RTE_LOG(INFO, Mao, "To wait lcore %d, socket %d.\n", lcore_id, rte_lcore_to_socket_id(lcore_id));
+
+        // Attention, it is busy-waiting(100% use ratio).
         ret = rte_eal_wait_lcore(lcore_id);
         if (ret != 0) {
             RTE_LOG(WARNING, Mao, "Caution, wait_lcore returns %d, %s.\n", ret, rte_strerror(-ret));
@@ -604,7 +733,7 @@ void wait_for_complete() {
 
 }
 
-void stop_port() {
+static void stop_port() {
     unsigned int port_id;
     unsigned ret;
     RTE_ETH_FOREACH_DEV(port_id) {
@@ -642,6 +771,7 @@ int main(int argc, char **argv) {
     init_timer_subsystem();
     init_power_subsystem();
 
+    show_port_info();
 
     init_lcore_port_runtime_config();
     load_lcore_config();
