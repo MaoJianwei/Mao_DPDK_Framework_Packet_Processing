@@ -5,8 +5,21 @@ Packet processing framework based on DPDK, with KNI &amp; interrupt mode PMD sup
 # dpdk-stable-20.11.6
 # http://fast.dpdk.org/rel/dpdk-20.11.6.tar.xz
 
+
 sudo su
+
+apt install libnuma-dev pkg-config meson
+meson setup build
+cd build
+ninja
+ninja install
+
 echo 1024 > /sys/kernel/mm/hugepages/hugepages-2048kB/nr_hugepages
+
+echo 1 > /sys/kernel/mm/hugepages/hugepages-1048576kB/nr_hugepages
+mkdir /hugepages-1G
+mount -thugetlbfs hugetlbfs /hugepages-1G -o "pagesize=1G"
+
 
 # option 1. using uio_pci_generic driver
 
