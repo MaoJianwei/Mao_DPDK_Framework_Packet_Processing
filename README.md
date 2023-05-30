@@ -65,4 +65,8 @@ cd build
 ninja
 ninja install
 ldconfig
+
+./build/l2fwd --vdev=net_tap0 --vdev=net_tap1 -- -p f
+https://doc.dpdk.org/guides/nics/tap.html
+https://doc.dpdk.org/guides/prog_guide/kernel_nic_interface.html
 ```
