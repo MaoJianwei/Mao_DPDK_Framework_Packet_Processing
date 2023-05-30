@@ -669,8 +669,8 @@ static int forward_loop() {
                 port_id = me->tx_port_ids[i];
                 rte_eth_tx_buffer_flush(port_id, Mao_TxRx_ONLY_ONE_QUEUE_ID, tx_buffers[port_id]);
             }
+            previous_tsc = current_tsc;
         }
-        previous_tsc = current_tsc;
 
 
         // RX - receive, process and send to other ports.
