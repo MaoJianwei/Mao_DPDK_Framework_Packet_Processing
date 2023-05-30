@@ -50,3 +50,19 @@ sudo insmod ./igb_uio.ko
 
 # 
 ```
+
+```
+https://fast.dpdk.org/rel/dpdk-22.11.2.tar.xz
+
+sudo su
+
+apt install libnuma-dev pkg-config meson python3-pip
+pip3 install pyelftools
+apt install libfdt-dev libexecline-dev libarchive-dev libbsd-dev libjansson-dev openssl libpcap-dev libssl-dev
+
+meson setup build
+cd build
+ninja
+ninja install
+ldconfig
+```
